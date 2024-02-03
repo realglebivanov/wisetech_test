@@ -1,4 +1,11 @@
-use anyhow::anyhow;
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("line (#{width}/#{limit})")]
+    LineWidthTooLong { width: u32, limit: usize },
+
+    #[error("Word too long (#{length}/#{limit})")]
+    WordTooLong { length: usize, limit: usize },
+}
 
 struct State<'a> {
     width: usize,
@@ -9,23 +16,26 @@ struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    fn new(line_width: usize) -> Self {
+    fn new(input: &str, line_width: usize) -> Self {
         Self {
             width: 0,
             line_width,
             is_first_line: true,
             lookbehind: Vec::with_capacity(line_width),
-            acc: String::with_capacity(line_width * 4 * 10),
+            acc: String::with_capacity(input.len() * 2),
         }
     }
 
     #[inline(always)]
-    fn add_word(mut self, word: &'a str) -> anyhow::Result<Self> {
+    fn add_word(mut self, word: &'a str) -> Result<Self, Error> {
         let char_count = word.chars().count();
         let width_delta = char_count + 1;
 
         if char_count >= self.line_width {
-            return Err(anyhow!("Unexpected word size (longer than line_width)"));
+            return Err(Error::WordTooLong {
+                length: char_count,
+                limit: self.line_width,
+            });
         }
 
         if self.width + width_delta - 1 > self.line_width {
@@ -77,15 +87,16 @@ impl<'a> State<'a> {
     }
 }
 
-pub fn transform(input: &str, line_width: u32) -> anyhow::Result<String> {
-    let line_width: usize = line_width
-        .try_into()
-        .or(Err(anyhow!("Too big of a line_width")))?;
+pub fn transform(input: &str, line_width: u32) -> Result<String, Error> {
+    let line_width: usize = line_width.try_into().or(Err(Error::LineWidthTooLong {
+        width: line_width,
+        limit: usize::max_value(),
+    }))?;
 
     let mut state = input
         .split(" ")
         .filter(|w| !w.is_empty())
-        .try_fold(State::new(line_width), State::add_word)?;
+        .try_fold(State::new(input, line_width), State::add_word)?;
 
     if state.lookbehind.len() > 0 {
         state.consume_line();
